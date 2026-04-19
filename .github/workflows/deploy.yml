@@ -1,0 +1,81 @@
+name: Deploy textile portfolio
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages-portfolio"
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Validate works.json and image files
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("works.json")
+          if not path.exists():
+              raise SystemExit("works.json not found")
+
+          data = json.loads(path.read_text(encoding="utf-8"))
+
+          if not isinstance(data, list):
+              raise SystemExit("works.json must contain a list")
+
+          required = ["title", "image", "medium", "year"]
+
+          for i, item in enumerate(data, start=1):
+              if not isinstance(item, dict):
+                  raise SystemExit(f"Entry {i} is not an object")
+
+              for key in required:
+                  if key not in item or not str(item[key]).strip():
+                      raise SystemExit(f"Entry {i} is missing required field: {key}")
+
+              image_path = item["image"].replace("./", "")
+              if not Path(image_path).exists():
+                  raise SystemExit(f"Missing image file for entry {i}: {item['image']}")
+
+          print("works.json and image paths are valid")
+          PY
+      - name: Ensure required files exist
+        run: |
+          test -f index.html
+          test -f styles.css
+          test -f app.js
+          test -f cover.jpg
+
+  build-and-deploy:
+    needs: validate
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: .
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
